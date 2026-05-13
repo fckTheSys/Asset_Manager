@@ -1,6 +1,6 @@
 # Tank Tool Box (RS / CentiLeo) — краткая документация
 
-Сводка версий плагинов в этом workspace: **[../VERSIONS.txt](../VERSIONS.txt)** (рядом с `active/README.txt`).
+Версия в коде: `ttb/config.py` (`PLUGIN_VERSION`). Обзор репозитория: **[README.md](README.md)**.
 
 ## Назначение
 
