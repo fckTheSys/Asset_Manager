@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+
+# Plugin reports / logs
+*.log
+ttb_report.txt
+
+# IDE
+.cursor/
+.vscode/
+.idea/

@@ -1,0 +1,160 @@
+{
+  "AM": [
+    "am",
+    "basecolor",
+    "base_color",
+    "base-col",
+    "albedo",
+    "diffuse",
+    "dif",
+    "diff",
+    "color",
+    "col",
+    "bc",
+    "base"
+  ],
+  "AO": [
+    "ao",
+    "ambientocclusion",
+    "ambient_occlusion",
+    "occlusion",
+    "occ"
+  ],
+  "NM": [
+    "nm",
+    "normal",
+    "normals",
+    "normalmap",
+    "normal_map",
+    "normalmaps",
+    "normal_gl",
+    "normal_dx",
+    "normalgl",
+    "normaldx",
+    "nrm",
+    "nor",
+    "norm"
+  ],
+  "MM": [
+    "mm",
+    "metalness",
+    "metallic",
+    "metal",
+    "mtl"
+  ],
+  "RM": [
+    "rg",
+    "rough",
+    "roughness",
+    "rough_map",
+    "rgh"
+  ],
+  "GM": [
+    "gm",
+    "gloss",
+    "glossiness",
+    "gloss_map",
+    "gls"
+  ],
+  "SP": [
+    "sp",
+    "spec",
+    "specular",
+    "spec_map",
+    "specularcolor",
+    "spec_color"
+  ],
+  "HM": [
+    "hm",
+    "height",
+    "heightmap",
+    "height_map",
+    "heightfield",
+    "displaceheightfield",
+    "displacementheightfield",
+    "disp",
+    "displacement",
+"displace"
+],
+  "OP": [
+    "op",
+    "opacity",
+    "opacitycolor",
+    "opacity_color",
+    "alpha",
+    "transparency",
+    "transparent",
+    "cutout"
+  ],
+  "EM": [
+    "em",
+    "emission",
+    "emissioncolor",
+    "emission_color",
+    "emissive",
+    "emit",
+    "glow"
+  ],
+  "SSS": [
+    "sss",
+    "subsurface",
+    "subsurfacecolor",
+    "subsurface_color",
+    "scatter"
+  ],
+  "THK": [
+    "thickness",
+    "thick",
+    "sss_thickness",
+    "translucency"
+  ],
+  "COAT": [
+    "coat",
+    "clearcoat",
+    "clear_coat",
+    "clearcoatroughness"
+  ],
+  "ANISO": [
+    "anisotropy",
+    "aniso",
+    "anisotropic"
+  ],
+  "CAV": [
+    "cavity",
+    "cav",
+    "microocclusion",
+    "micro_occlusion"
+  ],
+  "CURV": [
+    "curvature",
+    "curv"
+  ],
+  "ID": [
+    "id",
+    "mask",
+    "matid",
+    "materialid"
+  ],
+  "TR": [
+    "transmission",
+    "translucent",
+    "refr",
+    "refraction"
+  ],
+  "ORM": [
+    "orm",
+    "occlusionroughnessmetallic"
+  ],
+  "ARM": [
+    "arm",
+    "ao_rough_metal"
+  ],
+  "RMA": [
+    "rma",
+    "roughnessmetallicao"
+  ],
+  "MRA": [
+    "mra",
+    "metalroughao"
+  ]
+}
