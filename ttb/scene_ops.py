@@ -66,26 +66,147 @@ def infer_part_by_material_keys(name: str, mats_by_part: dict):
             return key
     return None
 
-def ensure_texture_tag(obj, mat):
+def _polygon_selection_tag_type():
+    """ID тега полигонального выделения (SelectionTag, полигоны)."""
+    return getattr(c4d, "Tpolygonselection", None)
+
+
+def _is_polygon_selection_tag(tag):
+    tps = _polygon_selection_tag_type()
+    if tps is None or tag is None:
+        return False
+    return tag.GetType() == tps
+
+
+def _iter_polygon_selection_tags(obj):
+    out = []
+    tag = obj.GetFirstTag()
+    while tag:
+        if _is_polygon_selection_tag(tag):
+            out.append(tag)
+        tag = tag.GetNext()
+    return out
+
+
+def _polygon_selection_has_any_polygons(tag):
+    """Пропускаем пустые выделения (нет полигонов в BaseSelect)."""
+    try:
+        bs = tag.GetBaseSelect()
+        if bs is None:
+            return False
+        return int(bs.GetCount()) > 0
+    except Exception:
+        return True
+
+
+def _strip_texture_tags(obj):
+    tag = obj.GetFirstTag()
+    while tag:
+        nxt = tag.GetNext()
+        if tag.CheckType(c4d.Ttexture):
+            tag.Remove()
+        tag = nxt
+
+
+def _resolve_part_for_selection_or_object(
+    root_name,
+    obj_name,
+    label,
+    mats_by_part,
+    use_default_if_no_part,
+):
+    """
+    label — имя тега полигонального выделения.
+    Сначала сопоставляем по имени выделения (и префиксу корня), затем по имени объекта как раньше.
+    """
+    part = None
+    if label:
+        part = infer_part_from_name(f"{root_name}_{label}")
+        if part is None:
+            part = infer_part_from_name(label)
+        if part is None and use_default_if_no_part:
+            part = infer_part_by_material_keys(label, mats_by_part)
+        if part is None and use_default_if_no_part:
+            part = infer_part_by_material_keys(f"{root_name}_{label}", mats_by_part)
+    if part is None:
+        name_full = f"{root_name}_{obj_name}"
+        part = infer_part_from_name(name_full)
+        if part is None and use_default_if_no_part:
+            part = infer_part_by_material_keys(name_full, mats_by_part)
+    return part
+
+
+def ensure_texture_tag(obj, mat, restriction=""):
+    """
+    Добавить или обновить Material Tag.
+    restriction — имя тега полигонального выделения для TEXTURETAG_RESTRICTION, иначе пусто (весь меш).
+    """
+    want = (restriction or "").strip()
     tag = obj.GetFirstTag()
     while tag:
         if tag.CheckType(c4d.Ttexture) and tag.GetMaterial() == mat:
-            # Гарантируем UVW-проекцию даже для уже существующего тега
+            cur = ""
             try:
-                tag[c4d.TEXTURETAG_PROJECTION] = c4d.TEXTURETAG_PROJECTION_UVW
+                cur = (tag[c4d.TEXTURETAG_RESTRICTION] or "").strip()
             except Exception:
                 pass
-            return tag
+            if cur == want:
+                try:
+                    tag[c4d.TEXTURETAG_PROJECTION] = c4d.TEXTURETAG_PROJECTION_UVW
+                except Exception:
+                    pass
+                return tag
         tag = tag.GetNext()
 
     t = c4d.TextureTag()
     t.SetMaterial(mat)
     try:
         t[c4d.TEXTURETAG_PROJECTION] = c4d.TEXTURETAG_PROJECTION_UVW
+        if want:
+            t[c4d.TEXTURETAG_RESTRICTION] = want
     except Exception:
         pass
     obj.InsertTag(t)
     return t
+
+
+def _apply_materials_for_polygon_selections(root, obj, mats_by_part, use_default_if_no_part):
+    """
+    Если на полигональном объекте есть непустые теги полигонального выделения,
+    подбираем материал по имени выделения и вешаем отдельные Material Tag с ограничением.
+    Возвращает (count_tags, used_selections).
+    """
+    root_name = root.GetName()
+    obj_name = obj.GetName()
+    seltags = _iter_polygon_selection_tags(obj)
+    if not seltags:
+        return 0, False
+
+    matched = []
+    for st in seltags:
+        if not _polygon_selection_has_any_polygons(st):
+            continue
+        label = st.GetName()
+        part = _resolve_part_for_selection_or_object(
+            root_name,
+            obj_name,
+            label,
+            mats_by_part,
+            use_default_if_no_part,
+        )
+        mat = mats_by_part.get(part) if part else None
+        if not mat:
+            continue
+        matched.append((label, mat))
+
+    if not matched:
+        return 0, False
+
+    count = 0
+    for label, mat in matched:
+        ensure_texture_tag(obj, mat, restriction=label)
+        count += 1
+    return count, True
 
 
 def _apply_materials_to_root(doc, root, mats_by_part: dict, use_default_if_no_part: bool = False):
@@ -98,12 +219,16 @@ def _apply_materials_to_root(doc, root, mats_by_part: dict, use_default_if_no_pa
 
     count = 0
     for o in iter_objects(root.GetDown()):
-        tag = o.GetFirstTag()
-        while tag:
-            next_tag = tag.GetNext()
-            if tag.CheckType(c4d.Ttexture):
-                tag.Remove()
-            tag = next_tag
+        _strip_texture_tags(o)
+
+        # Полигональные выделения на мешах: отдельные Material Tag с Selection
+        if o.GetType() == c4d.Opolygon and _polygon_selection_tag_type() is not None:
+            n_sel, used_sel = _apply_materials_for_polygon_selections(
+                root, o, mats_by_part, use_default_if_no_part
+            )
+            if used_sel:
+                count += n_sel
+                continue
 
         name_for_part = f"{root_name}_{o.GetName()}"
         part = infer_part_from_name(name_for_part)
@@ -114,12 +239,18 @@ def _apply_materials_to_root(doc, root, mats_by_part: dict, use_default_if_no_pa
         mat = mats_by_part.get(part) if part else default_mat
         if not mat:
             continue
-        ensure_texture_tag(o, mat)
+        ensure_texture_tag(o, mat, restriction="")
         count += 1
     return count
 
 
 def apply_materials_to_tank(doc, tank_name: str, mats_by_part: dict):
+    """
+    Назначает материалы объектам под null танка.
+    Для c4d.Opolygon: если есть непустые теги полигонального выделения (Tpolygonselection),
+    имена которых удаётся сопоставить с частями (Hull, Turret, …), вешаются отдельные
+    Material Tag с ограничением по выделению; иначе — один тег на объект по имени как раньше.
+    """
     root = find_tank_null(doc, tank_name)
     if root is None:
         return 0
@@ -156,8 +287,9 @@ def collect_mats_for_model(doc, model_name: str):
 
 def apply_materials_generic(doc, model_name: str, mats_by_part: dict):
     """
-    Универсальное назначение материалов: null по имени model_name,
-    при отсутствии part — дефолт Hull или первый из mats_by_part.
+    Универсальное назначение: null по имени model_name; при отсутствии part — Hull или первый материал.
+    Полигональные выделения на мешах обрабатываются так же, как в apply_materials_to_tank
+    (имя выделения сопоставляется с ключами материалов model_*).
     """
     root = find_tank_null(doc, model_name)
     if root is None:

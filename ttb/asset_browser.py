@@ -16,6 +16,7 @@ from .scene_ops import (
 )
 from .rs_graph import create_or_update_rs_material
 from .cl_graph import create_or_update_cl_material
+from . import ui_help
 
 
 def _mat_builder(engine: str):
@@ -39,6 +40,8 @@ ID_SHADERS = 3013
 ID_APPLY = 3014
 ID_CLOSE = 3015
 ID_VALIDATE = 3016
+ID_HELP_BROWSER = 3017
+ID_LIST_HINT = 3018
 ID_TASK_CHECK_START = 3100  # 3100..3599 → up to 500 tasks
 
 
@@ -73,49 +76,70 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
         self.SetTitle("Asset Browser — " + ("Tanks" if self._mode == "tanks" else "Universal"))
         self.GroupBorderSpace(10, 10, 10, 10)
 
-        # Root + Refresh
-        self.AddStaticText(0, c4d.BFH_LEFT, name="Root:")
+        self.AddStaticText(0, c4d.BFH_LEFT, name="Корень:")
         self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=2, rows=1)
-        self.AddStaticText(ID_ROOT_LABEL, c4d.BFH_SCALEFIT, name=_short_path(self._root_path, 60) or "(none)")
-        self.AddButton(ID_REFRESH, c4d.BFH_RIGHT, initw=80, inith=0, name="Refresh")
+        self.AddStaticText(ID_ROOT_LABEL, c4d.BFH_SCALEFIT, name=_short_path(self._root_path, 70) or "(нет)")
+        self.AddButton(ID_REFRESH, c4d.BFH_RIGHT, initw=100, inith=0, name="Обновить")
         self.GroupEnd()
 
         self.AddSeparatorH(c4d.BFH_SCALEFIT)
         self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=2, rows=1)
-        self.AddStaticText(0, c4d.BFH_LEFT, name="Filter:")
-        self.AddEditText(ID_FILTER, c4d.BFH_SCALEFIT, initw=320)
+        self.AddStaticText(0, c4d.BFH_LEFT, name="Фильтр:")
+        self.AddEditText(ID_FILTER, c4d.BFH_SCALEFIT, initw=360)
         self.GroupEnd()
-        self.AddStaticText(ID_SELECTED_COUNT, c4d.BFH_LEFT, name="Selected: 0")
+        self.AddStaticText(ID_SELECTED_COUNT, c4d.BFH_LEFT, name="Выбрано: 0")
 
         self.AddSeparatorH(c4d.BFH_SCALEFIT)
 
-        # Action bar: always visible above the list
-        self.AddStaticText(0, c4d.BFH_LEFT, name="Actions:")
-        self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=6, rows=1)
-        self.AddButton(ID_SELECT_ALL, c4d.BFH_LEFT, initw=90, inith=0, name="Select all")
-        self.AddButton(ID_DESELECT_ALL, c4d.BFH_LEFT, initw=100, inith=0, name="Deselect all")
-        self.AddButton(ID_VALIDATE, c4d.BFH_LEFT, initw=110, inith=0, name="Validate selected")
-        self.AddButton(ID_IMPORT, c4d.BFH_LEFT, initw=110, inith=0, name="Import selected")
-        self.AddButton(ID_SHADERS, c4d.BFH_LEFT, initw=120, inith=0, name="Build shaders")
-        self.AddButton(ID_APPLY, c4d.BFH_LEFT, initw=100, inith=0, name="Apply materials")
+        self.AddStaticText(0, c4d.BFH_LEFT, name="Действия:")
+        self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=3, rows=1)
+        self.AddButton(ID_SELECT_ALL, c4d.BFH_SCALEFIT, initw=0, inith=0, name="Выделить все")
+        self.AddButton(ID_DESELECT_ALL, c4d.BFH_SCALEFIT, initw=0, inith=0, name="Снять выделение")
+        self.AddButton(ID_VALIDATE, c4d.BFH_SCALEFIT, initw=0, inith=0, name="Проверить")
         self.GroupEnd()
-
-        self.AddSeparatorH(c4d.BFH_SCALEFIT)
-
-        # List area (plain group so LayoutFlushGroup + GroupBegin refill works reliably in C4D 2026)
-        self.GroupBegin(ID_GROUP_LIST, c4d.BFH_SCALEFIT | c4d.BFV_SCALEFIT, cols=1, rows=0, initw=520, inith=280)
-        self.AddStaticText(ID_PLACEHOLDER, c4d.BFH_LEFT, name="Press Refresh to load models.")
+        self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=3, rows=1)
+        self.AddButton(ID_IMPORT, c4d.BFH_SCALEFIT, initw=0, inith=0, name="Импорт выбранных")
+        self.AddButton(ID_SHADERS, c4d.BFH_SCALEFIT, initw=0, inith=0, name="Шейдеры")
+        self.AddButton(ID_APPLY, c4d.BFH_SCALEFIT, initw=0, inith=0, name="Материалы")
         self.GroupEnd()
 
         self.AddSeparatorH(c4d.BFH_SCALEFIT)
 
-        # Texture preview for selected row (optional)
-        self.AddStaticText(0, c4d.BFH_LEFT, name="Textures (selected model):")
-        self.AddMultiLineEditText(ID_TEX_PREVIEW, c4d.BFH_SCALEFIT | c4d.BFV_SCALE, inith=50, style=c4d.DR_MULTILINE_READONLY)
+        self.AddStaticText(
+            ID_LIST_HINT,
+            c4d.BFH_LEFT,
+            name="Список: Tex — число карт по группам частей; в колонке FBX — только имя файла.",
+        )
+
+        _scroll_flags = c4d.SCROLLGROUP_VERT | c4d.SCROLLGROUP_BORDERIN
+        self.ScrollGroupBegin(
+            ID_SCROLL,
+            c4d.BFH_SCALEFIT | c4d.BFV_SCALEFIT,
+            _scroll_flags,
+            initw=640,
+            inith=300,
+        )
+        self.GroupBegin(ID_GROUP_LIST, c4d.BFH_LEFT | c4d.BFV_TOP, cols=1, rows=0, initw=620, inith=0)
+        self.AddStaticText(ID_PLACEHOLDER, c4d.BFH_LEFT, name="Нажмите «Обновить», чтобы загрузить модели.")
+        self.GroupEnd()
+        self.GroupEnd()
 
         self.AddSeparatorH(c4d.BFH_SCALEFIT)
 
-        self.AddButton(ID_CLOSE, c4d.BFH_SCALEFIT, initw=0, inith=0, name="Close")
+        self.AddStaticText(0, c4d.BFH_LEFT, name="Путь к FBX и текстуры (выберите ровно одну строку в списке):")
+        self.AddMultiLineEditText(
+            ID_TEX_PREVIEW,
+            c4d.BFH_SCALEFIT | c4d.BFV_SCALE,
+            inith=72,
+            style=c4d.DR_MULTILINE_READONLY,
+        )
+
+        self.AddSeparatorH(c4d.BFH_SCALEFIT)
+
+        self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=2, rows=1)
+        self.AddButton(ID_HELP_BROWSER, c4d.BFH_LEFT, initw=140, inith=0, name="Справка…")
+        self.AddButton(ID_CLOSE, c4d.BFH_SCALEFIT, initw=0, inith=0, name="Закрыть")
+        self.GroupEnd()
 
         return True
 
@@ -150,23 +174,27 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
 
     def _fill_list(self):
         self.LayoutFlushGroup(ID_GROUP_LIST)
-        display_root = _short_path(self._root_path, 60) or "(none)"
+        display_root = _short_path(self._root_path, 70) or "(нет)"
         self.SetString(ID_ROOT_LABEL, display_root)
 
         # Re-open the list group so new elements become its children (C4D requirement after FlushGroup)
-        self.GroupBegin(ID_GROUP_LIST, c4d.BFH_LEFT | c4d.BFV_TOP, cols=1, rows=0)
+        self.GroupBegin(ID_GROUP_LIST, c4d.BFH_LEFT | c4d.BFV_TOP, cols=1, rows=0, initw=620, inith=0)
 
         if not self._visible_tasks:
-            self.AddStaticText(ID_PLACEHOLDER, c4d.BFH_LEFT, name="No models found. Press Refresh to reload.")
+            self.AddStaticText(ID_PLACEHOLDER, c4d.BFH_LEFT, name="Модели не найдены. Нажмите «Обновить».")
             self.GroupEnd()
             self.LayoutChanged(ID_GROUP_LIST)
+            try:
+                self.LayoutChanged(ID_SCROLL)
+            except Exception:
+                pass
             self._update_selected_count()
             return
 
         # Header row
         self.GroupBegin(0, c4d.BFH_LEFT | c4d.BFV_TOP, cols=4, rows=1)
         self.AddStaticText(0, c4d.BFH_LEFT, name="")
-        self.AddStaticText(0, c4d.BFH_SCALEFIT, name="Name")
+        self.AddStaticText(0, c4d.BFH_SCALEFIT, name="Имя")
         self.AddStaticText(0, c4d.BFH_SCALEFIT, name="FBX")
         self.AddStaticText(0, c4d.BFH_RIGHT, name="Tex")
         self.GroupEnd()
@@ -174,21 +202,27 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
         max_tasks = 500
         for i, task in enumerate(self._visible_tasks):
             if i >= max_tasks:
-                self.AddStaticText(0, c4d.BFH_LEFT, name=f"... and {len(self._visible_tasks) - max_tasks} more")
+                self.AddStaticText(0, c4d.BFH_LEFT, name="… и ещё %s" % (len(self._visible_tasks) - max_tasks))
                 break
             name = _task_name(task, self._mode)
             fbx = task.get("fbx", "")
+            base = os.path.basename(fbx) if fbx else ""
+            disp = _short_path(base, 56) if base else ""
             tex_count = sum(len(maps) for maps in task.get("groups", {}).values())
             gid = ID_TASK_CHECK_START + i
             self.GroupBegin(0, c4d.BFH_LEFT | c4d.BFV_TOP, cols=4, rows=1)
             self.AddCheckbox(gid, c4d.BFH_LEFT, initw=20, inith=0, name="")
             self.AddStaticText(0, c4d.BFH_SCALEFIT, name=name)
-            self.AddStaticText(0, c4d.BFH_SCALEFIT, name=_short_path(fbx, 45))
+            self.AddStaticText(0, c4d.BFH_SCALEFIT, name=disp)
             self.AddStaticText(0, c4d.BFH_RIGHT, name=str(tex_count))
             self.GroupEnd()
 
         self.GroupEnd()
         self.LayoutChanged(ID_GROUP_LIST)
+        try:
+            self.LayoutChanged(ID_SCROLL)
+        except Exception:
+            pass
         self._update_selected_count()
 
     def _get_selected_tasks(self):
@@ -218,18 +252,19 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
             self._update_selected_count()
             return
         task = self._visible_tasks[sel[0]]
-        lines = []
+        fbx = task.get("fbx", "") or ""
+        lines = ["FBX: %s" % fbx, ""]
         for part, maps in task.get("groups", {}).items():
             lines.append("[%s]" % part)
             for typ, path in (maps or {}).items():
                 lines.append(f"  {typ}: {path}")
-        self.SetString(ID_TEX_PREVIEW, "\n".join(lines) if lines else "(no textures)")
+        self.SetString(ID_TEX_PREVIEW, "\n".join(lines) if len(lines) > 2 else "FBX: %s\n\n(нет текстур)" % fbx)
         self._update_selected_count()
 
     def _update_selected_count(self):
         count = len(list(self._get_selected_tasks()))
         try:
-            self.SetString(ID_SELECTED_COUNT, "Selected: %s / %s" % (count, len(self._visible_tasks)))
+            self.SetString(ID_SELECTED_COUNT, "Выбрано: %s / %s" % (count, len(self._visible_tasks)))
         except Exception:
             pass
 
@@ -392,6 +427,9 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
             return True
         if wid == ID_APPLY:
             self._action_apply()
+            return True
+        if wid == ID_HELP_BROWSER:
+            c4d.gui.MessageDialog(ui_help.HELP_ASSET_BROWSER)
             return True
         if wid == ID_CLOSE:
             self.Close()

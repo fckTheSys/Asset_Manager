@@ -3,7 +3,7 @@ import os
 
 import c4d
 
-from .config import PLUGIN_ID, PLUGIN_NAME, PLUGIN_VERSION, ENGINES
+from .config import PLUGIN_ID, PLUGIN_NAME, PLUGIN_VERSION
 from .io_scan import (
     collect_tasks,
     build_texture_index,
@@ -24,6 +24,19 @@ from .relink import fix_node_texturesampler_paths, fix_legacy_bitmap_shaders
 from .asset_browser import AssetBrowserDialog
 from .diagnostics import run_self_check, summarize_tasks
 from .log import info as log
+from . import ui_help
+
+# Layout / tabs (no Command handlers — structural ids only unless needed)
+ID_GROUP_ENGINES = 1160
+ID_MAIN_TABS = 1161
+ID_TAB_PAGE_TANKS = 1162
+ID_TAB_PAGE_UNIVERSAL = 1163
+ID_GRP_TANKS_ROOT = 1164
+ID_GRP_TANKS_ACTIONS = 1165
+ID_GRP_TANKS_BROWSER = 1166
+ID_GRP_UNI_ROOT = 1167
+ID_GRP_UNI_ACTIONS = 1168
+ID_GRP_UNI_BROWSER = 1169
 
 # UI IDs (Tanks)
 ID_PATH = 1001
@@ -50,6 +63,10 @@ ID_ASSET_BROWSER_UNI = 2202
 ID_ENGINE_RS = 1050
 ID_ENGINE_CL = 1051
 
+# Справка по вкладкам
+ID_HELP_TANKS = 2301
+ID_HELP_UNIVERSAL = 2302
+
 
 def _get_create_material_fn(engine: str):
     if engine == "centileo":
@@ -70,6 +87,8 @@ _COMMAND_HANDLERS = {
     ID_UNI_APPLY: ("_uni_apply", True),
     ID_ASSET_BROWSER_TANKS: ("_open_asset_browser_tanks", False),
     ID_ASSET_BROWSER_UNI: ("_open_asset_browser_uni", False),
+    ID_HELP_TANKS: ("_help_tanks", False),
+    ID_HELP_UNIVERSAL: ("_help_universal", False),
 }
 
 
@@ -84,6 +103,18 @@ class TankToolDialog(c4d.gui.GeDialog):
         self.SetTitle("%s v%s" % (PLUGIN_NAME, PLUGIN_VERSION))
         self.GroupBorderSpace(10, 10, 10, 10)
 
+        _border_title = c4d.BORDER_GROUP_IN | c4d.BORDER_WITH_TITLE_BOLD
+        _border_plain = c4d.BORDER_GROUP_IN | c4d.BORDER_WITH_TITLE
+
+        # --- Глобально: движки (вне вкладок) ---
+        self.GroupBegin(
+            ID_GROUP_ENGINES,
+            c4d.BFH_SCALEFIT | _border_title,
+            cols=1,
+            rows=0,
+            title="Материалы / движки",
+            groupflags=0,
+        )
         self.AddStaticText(0, c4d.BFH_LEFT, name="Собирать материалы для:")
         self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=2, rows=1)
         self.AddCheckbox(ID_ENGINE_RS, c4d.BFH_LEFT, initw=0, inith=0, name="Redshift")
@@ -94,41 +125,137 @@ class TankToolDialog(c4d.gui.GeDialog):
             c4d.BFH_LEFT,
             initw=0,
             inith=0,
-            name="Update existing materials only (не создавать новые)",
+            name="Только обновлять существующие материалы (не создавать новые)",
         )
-        self.AddSeparatorH(c4d.BFH_SCALEFIT)
+        self.AddStaticText(
+            0,
+            c4d.BFH_LEFT,
+            name="Подсказка: если ни один движок не отмечен, используется Redshift.",
+        )
+        self.GroupEnd()
 
-        # Tanks block
+        # --- Вкладки Tanks | Universal ---
+        self.TabGroupBegin(ID_MAIN_TABS, c4d.BFH_SCALEFIT | c4d.BFV_SCALEFIT, c4d.TAB_TABS)
+
+        # Вкладка Tanks
+        self.GroupBegin(
+            ID_TAB_PAGE_TANKS,
+            c4d.BFH_SCALEFIT | c4d.BFV_TOP,
+            cols=1,
+            rows=0,
+            title="Tanks",
+            groupflags=0,
+        )
+        self.GroupBegin(
+            ID_GRP_TANKS_ROOT,
+            c4d.BFH_SCALEFIT | _border_plain,
+            cols=1,
+            rows=0,
+            title="Корень",
+            groupflags=0,
+        )
         self.AddStaticText(0, c4d.BFH_LEFT, name="Папка TANKS:")
         self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=2, rows=1)
         self.AddEditText(ID_PATH, c4d.BFH_SCALEFIT, initw=420)
         self.AddButton(ID_BROWSE, c4d.BFH_RIGHT, name="...")
         self.GroupEnd()
+        self.GroupEnd()
 
-        self.AddSeparatorH(c4d.BFH_SCALEFIT)
+        self.GroupBegin(
+            ID_GRP_TANKS_ACTIONS,
+            c4d.BFH_SCALEFIT | _border_plain,
+            cols=1,
+            rows=0,
+            title="Действия",
+            groupflags=0,
+        )
+        self.AddButton(ID_INIT, c4d.BFH_SCALEFIT, name="Инициализировать (Import + Shaders)")
+        self.AddButton(ID_UPDATE_SHADERS, c4d.BFH_SCALEFIT, name="Обновить шейдеры (только материалы)")
+        self.AddButton(ID_APPLY, c4d.BFH_SCALEFIT, name="Применить к моделькам (по имени части)")
+        self.AddButton(ID_FIX, c4d.BFH_SCALEFIT, name="Fix '?' (relink путей к текстурам)")
+        self.AddStaticText(
+            0,
+            c4d.BFH_LEFT,
+            name="Порядок: Инициализировать → при необходимости Обновить шейдеры → Применить → Fix при «?» в превью.",
+        )
+        self.GroupEnd()
 
-        self.AddButton(ID_INIT, c4d.BFH_SCALEFIT, name="Инициализировать (Import + Shaders) [Tanks]")
-        self.AddButton(ID_UPDATE_SHADERS, c4d.BFH_SCALEFIT, name="Обновить шейдеры (только материалы) [Tanks]")
-        self.AddButton(ID_APPLY, c4d.BFH_SCALEFIT, name="Применить к моделькам (по имени) [Tanks]")
-        self.AddButton(ID_FIX, c4d.BFH_SCALEFIT, name="Fix '?' (relink paths) [Tanks]")
+        self.GroupBegin(
+            ID_GRP_TANKS_BROWSER,
+            c4d.BFH_SCALEFIT | _border_plain,
+            cols=1,
+            rows=0,
+            title="Обзор",
+            groupflags=0,
+        )
+        self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=2, rows=1)
+        self.AddButton(ID_ASSET_BROWSER_TANKS, c4d.BFH_SCALEFIT, name="Открыть Asset Browser…")
+        self.AddButton(ID_HELP_TANKS, c4d.BFH_RIGHT, initw=120, inith=0, name="Справка…")
+        self.GroupEnd()
+        self.GroupEnd()
+        self.GroupEnd()
 
-        # Universal block
-        self.AddSeparatorH(c4d.BFH_SCALEFIT)
-
+        # Вкладка Universal
+        self.GroupBegin(
+            ID_TAB_PAGE_UNIVERSAL,
+            c4d.BFH_SCALEFIT | c4d.BFV_TOP,
+            cols=1,
+            rows=0,
+            title="Universal",
+            groupflags=0,
+        )
+        self.GroupBegin(
+            ID_GRP_UNI_ROOT,
+            c4d.BFH_SCALEFIT | _border_plain,
+            cols=1,
+            rows=0,
+            title="Корень",
+            groupflags=0,
+        )
         self.AddStaticText(0, c4d.BFH_LEFT, name="Universal root:")
         self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=2, rows=1)
         self.AddEditText(ID_UNI_PATH, c4d.BFH_SCALEFIT, initw=420)
         self.AddButton(ID_UNI_BROWSE, c4d.BFH_RIGHT, name="...")
         self.GroupEnd()
+        self.GroupEnd()
 
-        self.AddButton(ID_UNI_IMPORT, c4d.BFH_SCALEFIT, name="Import models (Universal)")
-        self.AddButton(ID_UNI_SHADERS, c4d.BFH_SCALEFIT, name="Build/Update shaders (Universal)")
-        self.AddButton(ID_UNI_APPLY, c4d.BFH_SCALEFIT, name="Apply materials (Universal)")
+        self.GroupBegin(
+            ID_GRP_UNI_ACTIONS,
+            c4d.BFH_SCALEFIT | _border_plain,
+            cols=1,
+            rows=0,
+            title="Действия",
+            groupflags=0,
+        )
+        self.AddButton(ID_UNI_IMPORT, c4d.BFH_SCALEFIT, name="Импорт моделей")
+        self.AddButton(ID_UNI_SHADERS, c4d.BFH_SCALEFIT, name="Сборка / обновление шейдеров")
+        self.AddButton(ID_UNI_APPLY, c4d.BFH_SCALEFIT, name="Применить материалы")
+        self.AddStaticText(
+            0,
+            c4d.BFH_LEFT,
+            name="Порядок: Импорт → Шейдеры → Применить. Пути к FBX и текстурам берутся из сканирования корня.",
+        )
+        self.GroupEnd()
+
+        self.GroupBegin(
+            ID_GRP_UNI_BROWSER,
+            c4d.BFH_SCALEFIT | _border_plain,
+            cols=1,
+            rows=0,
+            title="Обзор",
+            groupflags=0,
+        )
+        self.GroupBegin(0, c4d.BFH_SCALEFIT, cols=2, rows=1)
+        self.AddButton(ID_ASSET_BROWSER_UNI, c4d.BFH_SCALEFIT, name="Открыть Asset Browser…")
+        self.AddButton(ID_HELP_UNIVERSAL, c4d.BFH_RIGHT, initw=120, inith=0, name="Справка…")
+        self.GroupEnd()
+        self.GroupEnd()
+        self.GroupEnd()
+
+        self.GroupEnd()
 
         self.AddSeparatorH(c4d.BFH_SCALEFIT)
-        self.AddButton(ID_SELF_CHECK, c4d.BFH_SCALEFIT, name="Self check / diagnostics")
-        self.AddButton(ID_ASSET_BROWSER_TANKS, c4d.BFH_SCALEFIT, name="Asset Browser (Tanks)")
-        self.AddButton(ID_ASSET_BROWSER_UNI, c4d.BFH_SCALEFIT, name="Asset Browser (Universal)")
+        self.AddButton(ID_SELF_CHECK, c4d.BFH_SCALEFIT, name="Self check / диагностика")
 
         return True
 
@@ -251,6 +378,12 @@ class TankToolDialog(c4d.gui.GeDialog):
     def _self_check(self):
         c4d.gui.MessageDialog("\n".join(run_self_check()))
 
+    def _help_tanks(self):
+        c4d.gui.MessageDialog(ui_help.HELP_TANKS_TAB)
+
+    def _help_universal(self):
+        c4d.gui.MessageDialog(ui_help.HELP_UNIVERSAL_TAB)
+
     def _initialize(self, doc):
         tasks = self._get_tasks()
         if not tasks:
@@ -351,7 +484,7 @@ class TankToolDialog(c4d.gui.GeDialog):
             engines=self._get_engines(),
             update_existing_only=self._update_existing_only(),
         )
-        self.asset_browser_dlg.Open(c4d.DLG_TYPE_ASYNC, PLUGIN_ID + 1, defaultw=560, defaulth=480)
+        self.asset_browser_dlg.Open(c4d.DLG_TYPE_ASYNC, PLUGIN_ID + 1, defaultw=680, defaulth=560)
 
     def _open_asset_browser_uni(self):
         root = self._get_uni_root()
@@ -364,7 +497,7 @@ class TankToolDialog(c4d.gui.GeDialog):
             engines=self._get_engines(),
             update_existing_only=self._update_existing_only(),
         )
-        self.asset_browser_dlg.Open(c4d.DLG_TYPE_ASYNC, PLUGIN_ID + 1, defaultw=560, defaulth=480)
+        self.asset_browser_dlg.Open(c4d.DLG_TYPE_ASYNC, PLUGIN_ID + 1, defaultw=680, defaulth=560)
 
     def _fix(self, doc):
         tasks = self._get_tasks()
@@ -409,7 +542,7 @@ class TankToolCommand(c4d.plugins.CommandData):
     def Execute(self, doc):
         if self.dlg is None:
             self.dlg = TankToolDialog()
-        return self.dlg.Open(c4d.DLG_TYPE_ASYNC, PLUGIN_ID, defaultw=520, defaulth=0)
+        return self.dlg.Open(c4d.DLG_TYPE_ASYNC, PLUGIN_ID, defaultw=560, defaulth=0)
 
     def RestoreLayout(self, sec_ref):
         if self.dlg is None:
