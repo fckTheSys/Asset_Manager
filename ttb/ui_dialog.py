@@ -23,6 +23,7 @@ from .scene_ops import (
 from .relink import fix_node_texturesampler_paths, fix_legacy_bitmap_shaders
 from .asset_browser import AssetBrowserDialog
 from .diagnostics import run_self_check, summarize_tasks
+from .tanks_diagnostics import tanks_root_problem, tanks_textures_problem
 from .log import info as log
 from . import ui_help
 
@@ -316,13 +317,16 @@ class TankToolDialog(c4d.gui.GeDialog):
             return None
         return tasks
 
-    def _get_tasks(self):
-        return self._get_tasks_for_root(
-            self._get_root(),
-            collect_tasks,
-            "Путь к папке TANKS неверный.",
-            "Не найдено ни одного танка.",
-        )
+    def _get_tasks(self, require_textures=False):
+        root = self._get_root()
+        tasks = collect_tasks(root)
+        problem = tanks_root_problem(root, tasks)
+        if not problem and require_textures:
+            problem = tanks_textures_problem(tasks)
+        if problem:
+            c4d.gui.MessageDialog(problem)
+            return None
+        return tasks
 
     def _get_uni_tasks(self):
         return self._get_tasks_for_root(
@@ -385,7 +389,7 @@ class TankToolDialog(c4d.gui.GeDialog):
         c4d.gui.MessageDialog(ui_help.HELP_UNIVERSAL_TAB)
 
     def _initialize(self, doc):
-        tasks = self._get_tasks()
+        tasks = self._get_tasks(require_textures=True)
         if not tasks:
             return
 
@@ -421,7 +425,7 @@ class TankToolDialog(c4d.gui.GeDialog):
         self._export_report(self._get_uni_root(), "Import Universal", report)
 
     def _update_shaders(self, doc):
-        tasks = self._get_tasks()
+        tasks = self._get_tasks(require_textures=True)
         if not tasks:
             return
         log("--- UPDATE SHADERS ---")

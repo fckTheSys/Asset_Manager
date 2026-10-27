@@ -7,6 +7,7 @@ import os
 import c4d
 
 from .io_scan import collect_tasks, collect_universal_tasks, is_dir, normpath
+from .tanks_diagnostics import tanks_root_problem, tank_texture_problem, tanks_textures_problem
 from .scene_ops import (
     import_fbx,
     apply_materials_to_tank,
@@ -69,6 +70,7 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
         self._mode = "tanks" if mode == "tanks" else "universal"
         self._tasks = []
         self._visible_tasks = []
+        self._root_problem = None
         self._engines = engines if engines else ("redshift",)
         self._update_existing_only = bool(update_existing_only)
 
@@ -149,13 +151,15 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
         return True
 
     def _load_tasks(self):
+        self._root_problem = None
         if not self._root_path or not is_dir(self._root_path):
             self._tasks = []
-            return
-        if self._mode == "tanks":
+        elif self._mode == "tanks":
             self._tasks = collect_tasks(self._root_path)
         else:
             self._tasks = collect_universal_tasks(self._root_path)
+        if self._mode == "tanks":
+            self._root_problem = tanks_root_problem(self._root_path, self._tasks)
         self._apply_filter()
 
     def _apply_filter(self):
@@ -181,7 +185,14 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
         self.GroupBegin(ID_GROUP_LIST, c4d.BFH_LEFT | c4d.BFV_TOP, cols=1, rows=0, initw=620, inith=0)
 
         if not self._visible_tasks:
-            self.AddStaticText(ID_PLACEHOLDER, c4d.BFH_LEFT, name="Модели не найдены. Нажмите «Обновить».")
+            if self._root_problem:
+                hint = "Модели Tanks не найдены. Причина и ожидаемая структура указаны ниже."
+            elif self._tasks:
+                hint = "Нет моделей, соответствующих фильтру."
+            else:
+                hint = "Модели не найдены. Нажмите «Обновить»."
+            self.AddStaticText(ID_PLACEHOLDER, c4d.BFH_LEFT, name=hint)
+            self.SetString(ID_TEX_PREVIEW, self._root_problem or "")
             self.GroupEnd()
             self.LayoutChanged(ID_GROUP_LIST)
             try:
@@ -248,12 +259,16 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
     def _update_tex_preview(self):
         sel = self._get_selected_list_indices()
         if len(sel) != 1 or not self._visible_tasks:
-            self.SetString(ID_TEX_PREVIEW, "")
+            self.SetString(ID_TEX_PREVIEW, self._root_problem or "")
             self._update_selected_count()
             return
         task = self._visible_tasks[sel[0]]
         fbx = task.get("fbx", "") or ""
         lines = ["FBX: %s" % fbx, ""]
+        if self._mode == "tanks":
+            problem = tank_texture_problem(task)
+            if problem:
+                lines.append(problem)
         for part, maps in task.get("groups", {}).items():
             lines.append("[%s]" % part)
             for typ, path in (maps or {}).items():
@@ -291,7 +306,7 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
             if not task.get("fbx") or not os.path.isfile(task.get("fbx", "")):
                 problems.append("missing FBX")
             if not task.get("groups"):
-                problems.append("no texture groups")
+                problems.append(tank_texture_problem(task) if self._mode == "tanks" else "no texture groups")
             if problems:
                 lines.append("%s: %s" % (name, ", ".join(problems)))
             else:
@@ -335,6 +350,11 @@ class AssetBrowserDialog(c4d.gui.GeDialog):
         if not selected:
             c4d.gui.MessageDialog("Select at least one model.")
             return
+        if self._mode == "tanks":
+            problem = tanks_textures_problem(selected)
+            if problem:
+                c4d.gui.MessageDialog(problem)
+                return
         _log("--- Asset Browser: Build shaders selected ---")
         processed = 0
         skipped = 0
